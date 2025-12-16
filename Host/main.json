@@ -4,6 +4,7 @@
     "path": "YTDPwin.exe",
     "type": "stdio",
     "allowed_origins": [
-        "chrome-extension://hnmeidgkfcbpjjjpmjmpehjdljlaeaaa/"
+        "chrome-extension://hnmeidgkfcbpjjjpmjmpehjdljlaeaaa/",
+        "chrome-extension://ohklnnfcnncnolnhacliiefgjoagcomo/"
     ]
 }

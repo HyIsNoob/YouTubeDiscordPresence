@@ -1,131 +1,107 @@
-# Installation
+# YouTubeDiscordPresence — Enhanced README
 
-<p align="left">
-    <a href="https://chrome.google.com/webstore/detail/youtubediscordpresence/hnmeidgkfcbpjjjpmjmpehjdljlaeaaa" alt="Chrome Extension">
-        <img src="https://img.shields.io/badge/Chrome%20Web%20Store-8%2C000%2B%20Users-critical" /></a>
-    <a href="https://chrome.google.com/webstore/detail/youtubediscordpresence/hnmeidgkfcbpjjjpmjmpehjdljlaeaaa" alt="Category: Social & Communication">
-        <img src="https://img.shields.io/badge/Total%20Installs-25%2C000%2B-blue" /></a>
-</p>
+This fork enhances the original YouTubeDiscordPresence extension and native host with better activity data, thumbnails, localized button labels, and small quality-of-life improvements.
 
-If you're here from the Chrome Web Store, **you can skip the first step.**
+## Overview
+- Browser extension sends rich presence for YouTube and YouTube Music.
+- Native desktop host (YTDPwin) bridges the extension to Discord’s Rich Presence API.
+- This enhanced version focuses on:
+  - Clear activity type (Watching vs Listening)
+  - Smarter thumbnail selection
+  - Author-first small text (Spotify-like)
+  - Localized button labels (English/Vietnamese)
+  - Robust native host reconnect
 
-1. Add the [<ins>**Chrome Extension**</ins>](https://chrome.google.com/webstore/detail/youtubediscordpresence/hnmeidgkfcbpjjjpmjmpehjdljlaeaaa) from the Chrome Web Store
+## What’s New (Enhancements)
+- Activity type: `type=3` for YouTube (Watching), `type=2` for YouTube Music (Listening).
+- Thumbnails:
+  - YouTube: use the video thumbnail when available; livestream falls back to a live icon.
+  - YouTube Music: prefer square album art from `lh3.googleusercontent.com` when `useAlbumThumbnail` is enabled; otherwise fall back to track thumbnail; icon fallback only when no thumbnail exists.
+- Small text: shows the author (up to 64 chars). For livestreams, adds `[LIVE]` prefix.
+- Localized buttons:
+  - English: “Listen Along”, “Watch Livestream”, “Watch Video”, “View Channel”.
+  - Vietnamese (auto-selected when `navigator.language` starts with `vi`): “Nghe cùng”, “Xem livestream”, “Xem video”, “Xem kênh”.
+- Button behavior: Discord shows up to two buttons; they appear when you hover or interact with the activity card.
+- Native host reconnect: exponential backoff on disconnect; resets on successful reconnect.
+- Stable update cadence: 1s worker interval + 800ms send guard to avoid spamming.
 
-   - To access the personalization page, click the small icon in the top right corner of the browser, located beneath the extensions icon. For easier access, consider pinning the extension.
+## Install the Extension (Unpacked)
+1. Open Chrome → `chrome://extensions/`.
+2. Enable Developer mode.
+3. Click “Load unpacked” and select the `Extension/` folder.
+4. Note the extension ID (shown under the loaded extension).
 
-2. Download the latest `YTDPsetup.msi` file in the [**<ins>releases</ins>**](https://github.com/XFG16/YouTubeDiscordPresence/releases/tag/1.4.2) section of this repository and **run it on your device** to install the secondary desktop component.
+## Configure Native Host Manifest (Whitelist Your Extension ID)
+The native host must allow your extension ID. Edit `Host/main.json` and add your unpacked extension ID to `allowed_origins`.
 
-   - **NOTE:** Only Windows (x64) versions are currently supported.
+Example `Host/main.json`:
+```json
+{
+  "name": "com.ytdp.discord.presence",
+  "description": "Component of the YouTubeDiscordPresence extension that allows the usage of native messaging.",
+  "path": "YTDPwin.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://hnmeidgkfcbpjjjpmjmpehjdljlaeaaa/",
+    "chrome-extension://<YOUR-UNPACKED-ID>/"
+  ]
+}
+```
 
-Still confused? Watch the **installation tutorial** on YouTube using [**<ins>this link</ins>**](https://www.youtube.com/watch?v=BWPNqPGFyL4).
+Copy the manifest to the installed location (run PowerShell as Administrator):
+```powershell
+# Backup current manifest
+Copy-Item "C:\Program Files\YouTubeDiscordPresence\main.json" "C:\Program Files\YouTubeDiscordPresence\main.json.bak"
 
----
+# Overwrite with the edited manifest from the repo
+Copy-Item "d:\assign-uit\YouTubeDiscordPresence\Host\main.json" "C:\Program Files\YouTubeDiscordPresence\main.json"
+```
+Restart Chrome and reopen YouTube/YouTube Music.
 
-> [!IMPORTANT]  
-> Please read the announcements below for how the recent Discord UI/UX changes have impacted YouTubeDiscordPresence. **Don't worry, YouTubeDiscordPresence will still work, but there will be some minor changes to how the rich presence is diplayed.**
+## Build the Desktop App and MSI
+Prerequisites:
+- Visual Studio 2022 (or 2019) with “Desktop development with C++”.
+- Extension “Visual Studio Installer Projects” (for `.vdproj`).
 
-# Announcements
+Steps (GUI):
+1. Open `YTDPwin/YTDPwin.sln` in Visual Studio.
+2. Set configuration to `Release | x64`.
+3. Build project `YTDPwin`.
+4. Open `YTDPsetup/YTDPsetup.vdproj` and ensure it includes `Primary Output from YTDPwin (Release)`. Adjust Product Version if needed.
+5. Build `YTDPsetup` to produce the `.msi` (typically under the setup project’s `Release` output folder).
 
-Recently, Discord has been making major UI/UX changes that have impacted YouTubeDiscordPresence. **Here are a few things you should know:**
+Optional from command line (requires `devenv.com`):
+```powershell
+$devenv = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.com"
+& $devenv "d:\assign-uit\YouTubeDiscordPresence\YTDPwin\YTDPwin.sln" /build "Release|x64" /project "YTDPsetup\YTDPsetup.vdproj"
+```
 
-1. **Buttons:** Don't worry, Discord did not remove this feature. However, buttons on your profile will no longer show on your client. Instead, they will only be displayed on other people's clients, so everyone else will still be able to click the buttons on your profile. If you want proof, simply ask a friend to take a screenshot after you start watching YouTube or YouTube Music.
+## Change the Discord App Name (Mini Status)
+The short “app name” text shown next to your avatar is the Discord Application’s name. To customize it:
+1. Create a new app at https://discord.com/developers/applications with your desired name (e.g., “YouTube Presence Enhance”).
+2. Copy its Client ID (Application ID).
+3. Update `Host/main.cpp`:
+   ```cpp
+   // Replace the old ID
+   const int64_t APPLICATION_ID = <YOUR-CLIENT-ID>;
+   ```
+4. Rebuild the desktop app and MSI, reinstall.
 
-    - Here's [**<ins>an example</ins>**](https://github.com/discordjs/RPC/issues/180#issuecomment-2313232518).
+Note: Discord does not allow dynamic mini status text via Rich Presence. Title/author/channel appear inside the activity card only.
 
-2. **Time Left:** For whatever reason, Discord deprecated the ability to display time left in a video. As a workaround, YouTubeDiscordPresence will now display how far you are into the video. I will work on addressing this once Discord finalizes its UI/UX updates.
+## Troubleshooting
+- No buttons visible: buttons only appear when hovering the activity card in Discord.
+- “Native host disconnected”: ensure the MSI is installed correctly; the manifest path is valid; try reinstalling the MSI.
+- Extension sends data but Discord times out: restart Discord; ensure the desktop host can reach Discord; the send cadence is limited to avoid timeouts.
+- YouTube Music album art missing: album art is used when the thumbnail URL is from `lh3.googleusercontent.com` and `useAlbumThumbnail` is enabled; otherwise we fall back to track thumbnail.
 
-    - An example profile with all the features with new UI/UX updates is shown below. **Again, note that while you might not see all features on your client, this is what everyone else's client would display for your profile.**
+## Limitations
+- Discord Rich Presence supports only two buttons and does not expose a custom timeline bar UI.
+- Square thumbnails (1:1) require cropping via a proxy or host-side image processing; not part of this enhanced extension.
 
-<br>
-
-<div align="center">
-  <img width="auto" height="400px" src="https://github.com/XFG16/YouTubeDiscordPresence/blob/main/Screenshots/newUiExample.png?raw=true">
-</div>
-
-<br>
-
-These issues are **not unique to YouTubeDiscordPresence.** For example, you can no longer see Spotify buttons on your own client either.
-
----
-
-# YouTubeDiscordPresence for Windows (x64)
-
-<p align="left">
-    <a href="https://chrome.google.com/webstore/detail/youtubediscordpresence/hnmeidgkfcbpjjjpmjmpehjdljlaeaaa" alt="Category: Social & Communication">
-        <img src="https://img.shields.io/badge/Category-Social%20%26%20Communication-blueviolet" /></a>
-    <a href="https://github.com/XFG16/YouTubeDiscordPresence#license" alt="MIT License">
-        <img src="https://img.shields.io/badge/License-MIT-yellow" /></a>
-</p>
-
-- This is an extension used to create a detailed rich presence for YouTube and YouTube Music on Discord. It is a project that I decided to take on towards the end of my freshman year.
-
-- Currently, the application only supports **Windows (x64)**, although more operating systems will be supported in the future. Stay tuned!
-
-- Any warnings from services like VirusTotal are **false positives** due to YouTubeDiscordPresence being compiled using [**<ins>pkg</ins>**](https://github.com/vercel/pkg), a widely-used app bundler.
-
----
-
-## Troubleshooting/Known Issues
-
-> [!IMPORTANT]  
-> Please read the announcements above for how the recent Discord UI/UX changes have impacted YouTubeDiscordPresence. **Don't worry, YouTubeDiscordPresence will still work, but there will be some minor changes to how the rich presence is diplayed.**
-
-Otherwise, see if any of the following address your issue:
-
-- YouTubeDiscordPresence only works with the desktop application of Discord, **not the browser version.**
-
-- Please ensure that `Display current activity as status message` in your Discord settings is **turned on.**
-
-- The appearance and disappearance of the rich presence on your profile **can be delayed** because Discord limits the processing of rich presence update requests to once every 15 seconds.
-
-- The rich presence can also randomly disappear and reappear within a few seconds because Chrome forcibly unloads and reloads the `background.js` in Manifest v3
-
-If none of the above address your issue, then the first step you should always take is to go to `chrome://extensions` and disable the extension. Then, close and reopen your browser, and re-enable the extension, especially...
-
-- If the extension is **not appearing** even after you installed the desktop application...
-
-  - In this case, your Discord client is likely ratelimiting YouTubeDiscordPresence. To fix this, **do not simply just reload Discord. Go to your system tray or task manager and quit Discord before relaunching it.**
-
-- If **two or more instances of the rich presence** appear on your profile...
-
-  - Again, this is an error with the socket implementation Discord currently has and there is currently no easy way around it.
-
----
-
-## Opening a GitHub Issue
-
-- If you need more details and have the ability to open an issue, then before that, please head to `chrome://extensions`, **turn on developer mode**, and click **"inspect views <ins>service worker</ins>"**. This should open a developer window. From there, head to the **console** section and describe what the debug log shows.
-
-- Don't hesistate to open an issue if there's something wrong with YouTubeDiscordPresence. In fact, you should also open one if you have any suggestions for a new feature to be added.
-
----
-
-## Detailed Installation Instructions
-
-1. Building the installer from scratch:
-
-   - For NodeJS version: download the `NodeHost` directory and use [**<ins>pkg</ins>**](https://github.com/vercel/pkg) to compile `app.js` into an executable. However, you have to link the Chrome extension to the compiled executable manually, which can be done by following [**<ins>this guide</ins>**](https://developer.chrome.com/docs/apps/nativeMessaging/)
-
-     - Note that in `node_modules/discord-rpc/src/client.js`, the `RPC_CONNECTION_TIMEOUT` was changed from `10e3` to `2000`
-
-     - The `bundle.js` file contains the application IDs for the YouTube and YouTube Music rich presence that you have to create separately in the [**Discord Developer Portal**](https://discord.com/developers/applications). Make sure the image keys match the ones in `app.js`
-
-   - For C++ version: you can **build** the whole thing yourself with **Visual Studio 2022**. Just download the `Host` directory from this repository and open `YTDPwin.sln` under `Host/YTDPwin` in Visual Studio. Also, make sure to have the **Microsoft Visual Studio Installer Project** extension installed
-
-2. Add the [<ins>**Chrome Extension**</ins>](https://chrome.google.com/webstore/detail/youtubediscordpresence/hnmeidgkfcbpjjjpmjmpehjdljlaeaaa) from the **Chrome Web Store**
-
-   - If you want to load the extension without the Chrome Web Store or make edits, download the `Extension` directory, compress it into a zip, and load it onto your browser manually.
-
-   - Make sure that the `"allowed_origins"` key in the JSON file involved in [**<ins>native messaging</ins>**](https://developer.chrome.com/docs/apps/nativeMessaging/) contains the extension's ID. This file can be found in the location you installed YouTubeDiscordPresence, which is usually `C:\Program Files\YouTubeDiscordPresence` as `main.json`
+## Quick Test
+- YouTube Music: should show Listening, author small text, localized buttons, and album art or track thumbnail.
+- YouTube: should show Watching, author small text, video thumbnail, and buttons for “Watch Video” and “View Channel”.
 
 ---
-
-## Miscellaneous
-
-**DISCLAIMER:** this is not a bootleg copy of PreMiD. On a more technical note, it works similar to the Spotify rich presence—it only appears **when a video is playing** and **disappears when there is no video or the video is paused**. In addition, it only displays the presence for videos. Idling and searching are **not displayed**. Features such as exclusions, fully customizable details, and thumbnail coverage are **unique and original** to YouTubeDiscordPresence. YouTubeDiscordPresence has not referenced nor is affiliated with PreMiD in any way whatsoever.
-
----
-
-## License
-
-Licensed under the [MIT](https://github.com/XFG16/YouTubeDiscordPresence/blob/main/LICENSE.txt) license.
+This enhanced README summarizes how to set up, build, and use the improved presence features while staying within Discord’s Rich Presence constraints.

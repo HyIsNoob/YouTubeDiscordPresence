@@ -16,10 +16,31 @@ const NMF = Object.freeze({ // NMF = NATIVE_MESSAGE_FORMAT (FOR HANDLING BY YTDP
     IDLE: "#*IDLE*#"
 });
 
-const NORMAL_MESSAGE_DELAY = 1000;
+let NORMAL_MESSAGE_DELAY = 1000;
 const LIVESTREAM_TIME_ID = -1;
 const UPDATE_PRESENCE_MESSAGE = "UPDATE_PRESENCE_DATA";
 const REQUIRED_NATIVE_VERSION = "1.4.2";
+let nativeRetryDelay = 1000;
+let nativeRetryMaxDelay = 30000;
+const LABELS = {
+    en: {
+        listenAlong: "Listen Along",
+        watchLivestream: "Watch Livestream",
+        watchVideo: "Watch Video",
+        viewChannel: "View Channel",
+        by: "by",
+        liveOn: "[LIVE] on"
+    },
+    vi: {
+        listenAlong: "Nghe cùng",
+        watchLivestream: "Xem livestream",
+        watchVideo: "Xem video",
+        viewChannel: "Xem kênh",
+        by: "bởi",
+        liveOn: "[LIVE] trên"
+    }
+};
+let lastPresenceSent = 0;
 
 let nativeVersionStatus = -2;
 let currentMessage = new Object();
@@ -143,7 +164,13 @@ function assertNativeExistence(callback = null) {
             if (chrome.runtime.lastError) {
                 isNativeConnected = false;
                 saveStorageKey("isNativeConnected", false);
-                console.log("The YouTubeDiscordPresence desktop component was not properly installed.\nVisit https://github.com/XFG16/YouTubeDiscordPresence#installation");
+                if (LOGGING) console.log("Native host disconnected");
+                setTimeout(() => {
+                    if (!isNativeConnected) {
+                        assertNativeExistence();
+                        nativeRetryDelay = Math.min(nativeRetryDelay * 2, nativeRetryMaxDelay);
+                    }
+                }, nativeRetryDelay);
             }
         });
 
@@ -151,6 +178,7 @@ function assertNativeExistence(callback = null) {
             if (isNativeConnected) {
                 saveStorageKey("isNativeConnected", true);
                 nativePort.onMessage.addListener(handleNativeMessage);
+                nativeRetryDelay = 1000;
                 if (callback) callback();
             }
         }, 1000);
@@ -176,6 +204,20 @@ function saveStorageKey(key, value) {
     let saveObject = new Object();
     saveObject[key] = value;
     chrome.storage.sync.set(saveObject);
+}
+
+function getLabel(key) {
+    const lang = (navigator.language || "en").toLowerCase();
+    if (lang.startsWith("vi") && LABELS.vi[key]) return LABELS.vi[key];
+    return LABELS.en[key] || key;
+}
+
+function getStateText(isLive) {
+    const author = currentMessage.author || "";
+    if (isLive) {
+        return settings.addByAuthor ? `${getLabel("liveOn")} ${author}` : author;
+    }
+    return settings.addByAuthor ? `${getLabel("by")} ${author}` : author;
 }
 
 // PARSE YOUTUBE URLS (https://stackoverflow.com/questions/3452546/how-do-i-get-the-youtube-video-id-from-a-url)
@@ -298,6 +340,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             currentMessage.applicationType = message.applicationType;
             currentMessage.thumbnailUrl = message.thumbnailUrl;
             lastUpdated = new Date().getTime();
+            if (LOGGING) console.log("Channel URL:", message.channelUrl);
             sendResponse(null);
         }
     }
@@ -325,30 +368,31 @@ function idleCallback() {
 
 function generatePresenceData() {
     let stateData = "";
-    if (currentMessage.timeLeft != LIVESTREAM_TIME_ID) {
-        stateData = settings.addByAuthor ? `by ${currentMessage.author}` : currentMessage.author;
-    }
-    else {
-        stateData = settings.addByAuthor ? `[LIVE] on ${currentMessage.author}` : currentMessage.author;
-    }
+    let activityType = 3; // Activity: Watching
+    const isLive = currentMessage.timeLeft == LIVESTREAM_TIME_ID;
+    stateData = getStateText(isLive);
+
+    const validThumbnail = currentMessage.thumbnailUrl && currentMessage.thumbnailUrl.startsWith("http");
 
     let assetsData = {
         large_image: "youtube3",
         large_text: currentMessage.title.substring(0, 128)
     };
     if (currentMessage.applicationType == "youtubeMusic") {
-        if (currentMessage.thumbnailUrl.startsWith("https://lh3.googleusercontent.com/") && settings.useAlbumThumbnail) {
-            assetsData.large_image = currentMessage.thumbnailUrl;
+        activityType = 2; // Activity: Listening
+        if (currentMessage.thumbnailUrl && currentMessage.thumbnailUrl.startsWith("https://lh3.googleusercontent.com/") && settings.useAlbumThumbnail) {
+            assetsData.large_image = currentMessage.thumbnailUrl; // album art (square), preferred when available
         }
-        else if (settings.useThumbnailIcon && !currentMessage.thumbnailUrl.startsWith("https://lh3.googleusercontent.com/")) {
-            assetsData.large_image = currentMessage.thumbnailUrl;
+        else if (currentMessage.thumbnailUrl) {
+            assetsData.large_image = currentMessage.thumbnailUrl; // fallback to track video thumbnail even if not album art
         }
         else {
             assetsData.large_image = "youtube-music";
         }
     }
     else {
-        if (settings.useThumbnailIcon) {
+            activityType = 3; // Activity: Watching
+        if (validThumbnail) {
             assetsData.large_image = currentMessage.thumbnailUrl;
         }
         else if (currentMessage.timeLeft == LIVESTREAM_TIME_ID) {
@@ -358,7 +402,9 @@ function generatePresenceData() {
 
     if (settings.enablePlayingIcon) {
         assetsData.small_image = "playing-icon-6";
-        assetsData.small_text = "YouTubeDiscordPresence on GitHub";
+        const authorText = (currentMessage.author || "").substring(0, 64);
+        const baseText = currentMessage.applicationType == "youtubeMusic" ? "YouTube Music" : "YouTube";
+        assetsData.small_text = currentMessage.timeLeft == LIVESTREAM_TIME_ID ? `[LIVE] ${authorText || baseText}` : (authorText || baseText);
     }
 
     let timeStampsData = {};
@@ -377,35 +423,36 @@ function generatePresenceData() {
     if (settings.enableVideoButton && currentMessage.videoUrl) {
         if (currentMessage.applicationType == "youtubeMusic") {
             buttonsData.push({
-                label: "Listen Along",
+                label: getLabel("listenAlong"),
                 url: currentMessage.videoUrl
             });
         }
         else if (currentMessage.timeLeft == LIVESTREAM_TIME_ID) {
             buttonsData.push({
-                label: "Watch Livestream",
+                label: getLabel("watchLivestream"),
                 url: currentMessage.videoUrl
             });
         }
         else {
             buttonsData.push({
-                label: "Watch Video",
+                label: getLabel("watchVideo"),
                 url: currentMessage.videoUrl
             });
         }
     }
-    if (settings.enableChannelButton && currentMessage.channelUrl && !currentMessage.channelUrl.endsWith("undefined")) {
+    if (settings.enableChannelButton && currentMessage.channelUrl && currentMessage.channelUrl.startsWith("http") && !currentMessage.channelUrl.endsWith("undefined")) {
         buttonsData.push({
-            label: "View Channel",
+            label: getLabel("viewChannel"),
             url: currentMessage.channelUrl
         });
     }
 
     let presenceData = {
-        details: currentMessage.title.substring(0, 128),
+        details: isLive ? `[LIVE] ${currentMessage.title.substring(0, 124)}` : currentMessage.title.substring(0, 128),
         state: stateData.substring(0, 128),
         assets: assetsData,
         timestamps: timeStampsData,
+        type: activityType,
     };
     if (buttonsData.length > 0) {
         presenceData.buttons = buttonsData;
@@ -415,6 +462,10 @@ function generatePresenceData() {
 }
 
 function updateCallback() {
+    const now = Date.now();
+    if (now - lastPresenceSent < 800) {
+        return;
+    }
     let dataObject = {
         cppData: NMF.TITLE + currentMessage.title + NMF.AUTHOR + currentMessage.author + NMF.TIME_LEFT + Math.round(currentMessage.timeLeft) + NMF.END,
         jsTitle: currentMessage.title,
@@ -435,6 +486,7 @@ function updateCallback() {
 
     if (LOGGING) console.log("Presence data:", dataObject);
     nativePort.postMessage(dataObject);
+    lastPresenceSent = now;
 }
 
 let pipeInterval = setInterval(function () {
